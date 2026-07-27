@@ -10,7 +10,7 @@ class ScreenRecorder:
     def __init__(self, root):
         self.root = root
         self.root.title("Gravador de Tela")
-        self.root.geometry("300x120")
+        self.root.geometry("300x160")
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)
 
@@ -43,6 +43,9 @@ class ScreenRecorder:
 
         self.btn_cancel = tk.Button(frame, text="Cancelar/Parar", command=self.stop_recording, state=tk.DISABLED, width=15)
         self.btn_cancel.grid(row=1, column=1, padx=5, pady=5)
+
+        self.btn_fullscreen = tk.Button(frame, text="Tela Inteira", command=self.select_fullscreen, width=32)
+        self.btn_fullscreen.grid(row=2, column=0, columnspan=2, padx=5, pady=5)
 
     def start_selection(self):
         self.root.withdraw()
@@ -89,6 +92,12 @@ class ScreenRecorder:
         else:
             self.selection = None
             messagebox.showwarning("Aviso", "Área de seleção muito pequena ou inválida.")
+
+    def select_fullscreen(self):
+        monitor = self.sct.monitors[1]
+        self.selection = {"top": monitor["top"], "left": monitor["left"], "width": monitor["width"], "height": monitor["height"]}
+        self.show_border()
+        self.btn_start.config(state=tk.NORMAL)
 
     def show_border(self):
         if self.border_overlay:
