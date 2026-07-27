@@ -15,9 +15,10 @@ class ScreenRecorder:
     def __init__(self, root):
         self.root = root
         self.root.title("Gravador de Tela")
-        self.root.geometry("300x200")
+        self.root.geometry("380x130")
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)
+        self.root.config(bg="#202020")
 
         self.recording = False
         self.paused = False
@@ -42,29 +43,51 @@ class ScreenRecorder:
         self.rect = None
         self.border_overlay = None
 
+        self.capture_mode = tk.StringVar(value="area")
+        self.delay_val = tk.IntVar(value=0)
+
         self.setup_ui()
 
     def setup_ui(self):
-        frame = tk.Frame(self.root)
-        frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+        top_bar = tk.Frame(self.root, bg="#202020")
+        top_bar.pack(fill=tk.X, pady=5, padx=10)
+        
+        tk.Radiobutton(top_bar, text="Área", variable=self.capture_mode, value="area", bg="#202020", fg="white", selectcolor="#444444", activebackground="#202020", activeforeground="white").pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(top_bar, text="Tela Cheia", variable=self.capture_mode, value="full", bg="#202020", fg="white", selectcolor="#444444", activebackground="#202020", activeforeground="white").pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(top_bar, text="Atraso (s):", bg="#202020", fg="white").pack(side=tk.LEFT, padx=(10, 2))
+        opt = tk.OptionMenu(top_bar, self.delay_val, 0, 3, 5, 10)
+        opt.config(bg="#333333", fg="white", highlightthickness=0)
+        opt.pack(side=tk.LEFT)
+        
+        control_bar = tk.Frame(self.root, bg="#202020")
+        control_bar.pack(fill=tk.X, pady=5, padx=10)
+        
+        self.btn_start = tk.Button(control_bar, text="+ Novo", command=self.prepare_capture, bg="#0078D7", fg="white", relief=tk.FLAT, width=10)
+        self.btn_start.pack(side=tk.LEFT, padx=5)
+        
+        self.btn_pause = tk.Button(control_bar, text="Pausar", command=self.pause_recording, state=tk.DISABLED, bg="#444444", fg="white", relief=tk.FLAT, width=10)
+        self.btn_pause.pack(side=tk.LEFT, padx=5)
+        
+        self.btn_cancel = tk.Button(control_bar, text="Parar", command=self.stop_recording, state=tk.DISABLED, bg="#D70000", fg="white", relief=tk.FLAT, width=10)
+        self.btn_cancel.pack(side=tk.LEFT, padx=5)
+        
+        self.lbl_timer = tk.Label(self.root, text="00:00", font=("Segoe UI", 16, "bold"), bg="#202020", fg="white")
+        self.lbl_timer.pack(pady=2)
 
-        self.btn_select = tk.Button(frame, text="Selecionar Área", command=self.start_selection, width=15)
-        self.btn_select.grid(row=0, column=0, padx=5, pady=5)
+    def prepare_capture(self):
+        if self.capture_mode.get() == "area":
+            self.start_selection()
+        else:
+            self.select_fullscreen()
 
-        self.btn_start = tk.Button(frame, text="Iniciar", command=self.start_recording, state=tk.DISABLED, width=15)
-        self.btn_start.grid(row=0, column=1, padx=5, pady=5)
-
-        self.btn_pause = tk.Button(frame, text="Pausar", command=self.pause_recording, state=tk.DISABLED, width=15)
-        self.btn_pause.grid(row=1, column=0, padx=5, pady=5)
-
-        self.btn_cancel = tk.Button(frame, text="Cancelar/Parar", command=self.stop_recording, state=tk.DISABLED, width=15)
-        self.btn_cancel.grid(row=1, column=1, padx=5, pady=5)
-
-        self.btn_fullscreen = tk.Button(frame, text="Tela Inteira", command=self.select_fullscreen, width=32)
-        self.btn_fullscreen.grid(row=2, column=0, columnspan=2, padx=5, pady=5)
-
-        self.lbl_timer = tk.Label(frame, text="00:00", font=("Arial", 12, "bold"))
-        self.lbl_timer.grid(row=3, column=0, columnspan=2, pady=5)
+    def trigger_recording(self):
+        delay = self.delay_val.get()
+        if delay > 0:
+            self.btn_start.config(state=tk.DISABLED, text=f"Atraso {delay}s...")
+            self.root.after(delay * 1000, self.start_recording)
+        else:
+            self.start_recording()
 
     def start_selection(self):
         if self.border_overlay:
@@ -111,16 +134,17 @@ class ScreenRecorder:
         self.show_border()
 
         if self.selection["width"] > 10 and self.selection["height"] > 10:
-            self.btn_start.config(state=tk.NORMAL)
+            self.trigger_recording()
         else:
             self.selection = None
             messagebox.showwarning("Aviso", "Área de seleção muito pequena ou inválida.")
+            self.btn_start.config(state=tk.NORMAL, text="+ Novo")
 
     def select_fullscreen(self):
         monitor = self.sct.monitors[1]
         self.selection = {"top": monitor["top"], "left": monitor["left"], "width": monitor["width"], "height": monitor["height"]}
         self.show_border()
-        self.btn_start.config(state=tk.NORMAL)
+        self.trigger_recording()
 
     def show_border(self):
         if self.border_overlay:
@@ -151,8 +175,7 @@ class ScreenRecorder:
 
         self.recording = True
         self.paused = False
-        self.btn_start.config(state=tk.DISABLED)
-        self.btn_select.config(state=tk.DISABLED)
+        self.btn_start.config(state=tk.DISABLED, text="Gravando")
         self.btn_pause.config(state=tk.NORMAL)
         self.btn_cancel.config(state=tk.NORMAL)
         self.btn_pause.config(text="Pausar")
@@ -257,10 +280,8 @@ class ScreenRecorder:
         self.lbl_timer.config(text="00:00")
 
         self.btn_start.config(state=tk.DISABLED, text="Salvando...")
-        self.btn_select.config(state=tk.DISABLED)
         self.btn_pause.config(state=tk.DISABLED)
         self.btn_cancel.config(state=tk.DISABLED)
-        self.btn_fullscreen.config(state=tk.DISABLED)
 
         threading.Thread(target=self.save_and_merge, daemon=True).start()
 
@@ -320,9 +341,7 @@ class ScreenRecorder:
             self.root.after(0, self.reset_ui)
 
     def reset_ui(self):
-        self.btn_start.config(text="Iniciar")
-        self.btn_select.config(state=tk.NORMAL)
-        self.btn_fullscreen.config(state=tk.NORMAL)
+        self.btn_start.config(state=tk.NORMAL, text="+ Novo")
         self.btn_pause.config(state=tk.DISABLED, text="Pausar")
         self.btn_cancel.config(state=tk.DISABLED)
         
@@ -330,10 +349,7 @@ class ScreenRecorder:
             self.border_overlay.destroy()
             self.border_overlay = None
             
-        if self.selection:
-            self.btn_start.config(state=tk.NORMAL)
-        else:
-            self.btn_start.config(state=tk.DISABLED)
+        self.selection = None
 
 if __name__ == "__main__":
     root = tk.Tk()
