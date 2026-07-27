@@ -67,6 +67,10 @@ class ScreenRecorder:
         self.lbl_timer.grid(row=3, column=0, columnspan=2, pady=5)
 
     def start_selection(self):
+        if self.border_overlay:
+            self.border_overlay.destroy()
+            self.border_overlay = None
+
         self.root.withdraw()
         self.overlay = tk.Toplevel()
         self.overlay.attributes("-fullscreen", True)
