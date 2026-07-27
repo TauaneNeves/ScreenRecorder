@@ -245,6 +245,7 @@ class ScreenRecorder:
 
     def stop_recording(self):
         self.recording = False
+        
         if self.timer_job:
             self.root.after_cancel(self.timer_job)
             self.timer_job = None
@@ -260,6 +261,9 @@ class ScreenRecorder:
         threading.Thread(target=self.save_and_merge, daemon=True).start()
 
     def save_and_merge(self):
+        if self.audio_stream:
+            self.audio_stream.stop_stream()
+
         if hasattr(self, 'record_thread') and self.record_thread.is_alive():
             self.record_thread.join()
             
@@ -271,7 +275,6 @@ class ScreenRecorder:
             self.video_writer = None
 
         if self.audio_stream:
-            self.audio_stream.stop_stream()
             self.audio_stream.close()
             self.audio_stream = None
 
