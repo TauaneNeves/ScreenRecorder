@@ -17,13 +17,14 @@ class ScreenRecorder:
         self.recording = False
         self.paused = False
         self.selection = None
-        self.sct = mss.mss()
+        self.sct = mss.MSS()
         self.video_writer = None
 
         self.overlay = None
         self.start_x = None
         self.start_y = None
         self.rect = None
+        self.border_overlay = None
 
         self.setup_ui()
 
@@ -81,11 +82,36 @@ class ScreenRecorder:
         self.overlay.destroy()
         self.root.deiconify()
 
+        self.show_border()
+
         if self.selection["width"] > 10 and self.selection["height"] > 10:
             self.btn_start.config(state=tk.NORMAL)
         else:
             self.selection = None
             messagebox.showwarning("Aviso", "Área de seleção muito pequena ou inválida.")
+
+    def show_border(self):
+        if self.border_overlay:
+            self.border_overlay.destroy()
+        
+        self.border_overlay = tk.Toplevel(self.root)
+        self.border_overlay.overrideredirect(True)
+        self.border_overlay.attributes("-topmost", True)
+        try:
+            self.border_overlay.attributes("-transparentcolor", "black")
+        except tk.TclError:
+            pass
+        self.border_overlay.config(bg="black")
+        
+        w = self.selection["width"]
+        h = self.selection["height"]
+        x = self.selection["left"]
+        y = self.selection["top"]
+        
+        self.border_overlay.geometry(f"{w}x{h}+{x}+{y}")
+        canvas = tk.Canvas(self.border_overlay, bg="black", highlightthickness=0)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        canvas.create_rectangle(0, 0, w-1, h-1, outline="red", width=4)
 
     def start_recording(self):
         if not self.selection:
@@ -127,6 +153,10 @@ class ScreenRecorder:
         self.btn_pause.config(state=tk.DISABLED)
         self.btn_cancel.config(state=tk.DISABLED)
         self.btn_pause.config(text="Pausar")
+
+        if self.border_overlay:
+            self.border_overlay.destroy()
+            self.border_overlay = None
 
 if __name__ == "__main__":
     root = tk.Tk()
