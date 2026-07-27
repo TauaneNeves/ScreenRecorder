@@ -5,20 +5,36 @@ import numpy as np
 import mss
 import threading
 import time
+import os
+import subprocess
+import pyaudiowpatch as pyaudio
+import wave
+import imageio_ffmpeg
 
 class ScreenRecorder:
     def __init__(self, root):
         self.root = root
         self.root.title("Gravador de Tela")
-        self.root.geometry("300x160")
+        self.root.geometry("300x200")
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)
 
         self.recording = False
         self.paused = False
+        self.elapsed_time = 0
+        self.timer_job = None
         self.selection = None
         self.sct = mss.MSS()
         self.video_writer = None
+        self.filename = ""
+
+        # Configurações de Áudio
+        self.p = pyaudio.PyAudio()
+        self.audio_format = pyaudio.paInt16
+        self.audio_stream = None
+        self.audio_frames = []
+        self.audio_channels = 2
+        self.audio_rate = 44100
 
         self.overlay = None
         self.start_x = None
@@ -46,6 +62,9 @@ class ScreenRecorder:
 
         self.btn_fullscreen = tk.Button(frame, text="Tela Inteira", command=self.select_fullscreen, width=32)
         self.btn_fullscreen.grid(row=2, column=0, columnspan=2, padx=5, pady=5)
+
+        self.lbl_timer = tk.Label(frame, text="00:00", font=("Arial", 12, "bold"))
+        self.lbl_timer.grid(row=3, column=0, columnspan=2, pady=5)
 
     def start_selection(self):
         self.root.withdraw()
@@ -132,45 +151,182 @@ class ScreenRecorder:
         self.btn_select.config(state=tk.DISABLED)
         self.btn_pause.config(state=tk.NORMAL)
         self.btn_cancel.config(state=tk.NORMAL)
+        self.btn_pause.config(text="Pausar")
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        filename = f"gravacao_{int(time.time())}.mp4"
+        self.filename = f"gravacao_{int(time.time())}.mp4"
         
-        self.rec_w = self.selection["width"] if self.selection["width"] % 2 == 0 else self.selection["width"] - 1
-        self.rec_h = self.selection["height"] if self.selection["height"] % 2 == 0 else self.selection["height"] - 1
+        self.rec_w = 1920
+        self.rec_h = 1080
         
-        self.video_writer = cv2.VideoWriter(filename, fourcc, 30.0, (self.rec_w, self.rec_h))
+        self.video_writer = cv2.VideoWriter(self.filename, fourcc, 30.0, (self.rec_w, self.rec_h))
+
+        try:
+            wasapi_info = self.p.get_host_api_info_by_type(pyaudio.paWASAPI)
+            default_speakers = self.p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+            
+            if not default_speakers["isLoopbackDevice"]:
+                for loopback in self.p.get_loopback_device_info_generator():
+                    if default_speakers["name"] in loopback["name"]:
+                        default_speakers = loopback
+                        break
+                        
+            self.audio_channels = default_speakers["maxInputChannels"]
+            self.audio_rate = int(default_speakers["defaultSampleRate"])
+            
+            self.audio_stream = self.p.open(format=self.audio_format,
+                channels=self.audio_channels,
+                rate=self.audio_rate,
+                frames_per_buffer=1024,
+                input=True,
+                input_device_index=default_speakers["index"]
+            )
+        except Exception as e:
+            print(f"Erro ao inicializar áudio: {e}")
+            self.audio_stream = None
+
+        self.audio_frames = []
 
         self.record_thread = threading.Thread(target=self.record_loop, daemon=True)
         self.record_thread.start()
 
+        if self.audio_stream:
+            self.audio_thread = threading.Thread(target=self.record_audio_loop, daemon=True)
+            self.audio_thread.start()
+        
+        self.start_time = time.time() - self.elapsed_time
+        self.update_timer()
+
+    def update_timer(self):
+        if self.recording:
+            if not self.paused:
+                self.elapsed_time = int(time.time() - self.start_time)
+                mins, secs = divmod(self.elapsed_time, 60)
+                self.lbl_timer.config(text=f"{mins:02d}:{secs:02d}")
+            self.timer_job = self.root.after(1000, self.update_timer)
+
     def record_loop(self):
+        target_fps = 30.0
+        frame_time = 1.0 / target_fps
         while self.recording:
             if not self.paused:
+                start_loop = time.time()
+                
                 img = np.array(self.sct.grab(self.selection))
                 frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-                frame = cv2.resize(frame, (self.rec_w, self.rec_h))
+                frame = cv2.resize(frame, (self.rec_w, self.rec_h), interpolation=cv2.INTER_CUBIC)
                 self.video_writer.write(frame)
-            time.sleep(0.033)
+                
+                process_time = time.time() - start_loop
+                sleep_time = frame_time - process_time
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
+    def record_audio_loop(self):
+        while self.recording:
+            if not self.paused:
+                try:
+                    data = self.audio_stream.read(1024, exception_on_overflow=False)
+                    self.audio_frames.append(data)
+                except:
+                    pass
+            else:
+                time.sleep(0.01)
 
     def pause_recording(self):
         self.paused = not self.paused
         self.btn_pause.config(text="Retomar" if self.paused else "Pausar")
+        if self.paused:
+            if self.timer_job:
+                self.root.after_cancel(self.timer_job)
+        else:
+            self.start_time = time.time() - self.elapsed_time
+            self.update_timer()
 
     def stop_recording(self):
         self.recording = False
-        if self.video_writer:
-            self.video_writer.release()
+        if self.timer_job:
+            self.root.after_cancel(self.timer_job)
+            self.timer_job = None
+        self.elapsed_time = 0
+        self.lbl_timer.config(text="00:00")
 
-        self.btn_start.config(state=tk.NORMAL)
-        self.btn_select.config(state=tk.NORMAL)
+        self.btn_start.config(state=tk.DISABLED, text="Salvando...")
+        self.btn_select.config(state=tk.DISABLED)
         self.btn_pause.config(state=tk.DISABLED)
         self.btn_cancel.config(state=tk.DISABLED)
-        self.btn_pause.config(text="Pausar")
+        self.btn_fullscreen.config(state=tk.DISABLED)
 
+        threading.Thread(target=self.save_and_merge, daemon=True).start()
+
+    def save_and_merge(self):
+        if hasattr(self, 'record_thread') and self.record_thread.is_alive():
+            self.record_thread.join()
+            
+        if hasattr(self, 'audio_thread') and self.audio_thread.is_alive():
+            self.audio_thread.join()
+
+        if self.video_writer:
+            self.video_writer.release()
+            self.video_writer = None
+
+        if self.audio_stream:
+            self.audio_stream.stop_stream()
+            self.audio_stream.close()
+            self.audio_stream = None
+
+        if not self.audio_frames:
+            self.root.after(0, self.reset_ui)
+            return
+
+        try:
+            temp_wav = self.filename.replace(".mp4", ".wav")
+            wf = wave.open(temp_wav, 'wb')
+            wf.setnchannels(self.audio_channels)
+            wf.setsampwidth(self.p.get_sample_size(self.audio_format))
+            wf.setframerate(self.audio_rate)
+            wf.writeframes(b''.join(self.audio_frames))
+            wf.close()
+
+            final_filename = self.filename.replace("gravacao_", "final_")
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
+            cmd = [
+                ffmpeg_exe, "-y",
+                "-i", self.filename,
+                "-i", temp_wav,
+                "-c:v", "copy",
+                "-c:a", "aac",
+                final_filename
+            ]
+
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+
+            if os.path.exists(self.filename):
+                os.remove(self.filename)
+            if os.path.exists(temp_wav):
+                os.remove(temp_wav)
+
+        except Exception as e:
+            print(f"Erro ao mesclar áudio e vídeo: {e}")
+        finally:
+            self.root.after(0, self.reset_ui)
+
+    def reset_ui(self):
+        self.btn_start.config(text="Iniciar")
+        self.btn_select.config(state=tk.NORMAL)
+        self.btn_fullscreen.config(state=tk.NORMAL)
+        self.btn_pause.config(state=tk.DISABLED, text="Pausar")
+        self.btn_cancel.config(state=tk.DISABLED)
+        
         if self.border_overlay:
             self.border_overlay.destroy()
             self.border_overlay = None
+            
+        if self.selection:
+            self.btn_start.config(state=tk.NORMAL)
+        else:
+            self.btn_start.config(state=tk.DISABLED)
 
 if __name__ == "__main__":
     root = tk.Tk()
