@@ -133,9 +133,13 @@ class ScreenRecorder:
         self.btn_pause.config(state=tk.NORMAL)
         self.btn_cancel.config(state=tk.NORMAL)
 
-        fourcc = cv2.VideoWriter_fourcc(*"XVID")
-        filename = f"gravacao_{int(time.time())}.avi"
-        self.video_writer = cv2.VideoWriter(filename, fourcc, 20.0, (self.selection["width"], self.selection["height"]))
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        filename = f"gravacao_{int(time.time())}.mp4"
+        
+        self.rec_w = self.selection["width"] if self.selection["width"] % 2 == 0 else self.selection["width"] - 1
+        self.rec_h = self.selection["height"] if self.selection["height"] % 2 == 0 else self.selection["height"] - 1
+        
+        self.video_writer = cv2.VideoWriter(filename, fourcc, 30.0, (self.rec_w, self.rec_h))
 
         self.record_thread = threading.Thread(target=self.record_loop, daemon=True)
         self.record_thread.start()
@@ -145,8 +149,9 @@ class ScreenRecorder:
             if not self.paused:
                 img = np.array(self.sct.grab(self.selection))
                 frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                frame = cv2.resize(frame, (self.rec_w, self.rec_h))
                 self.video_writer.write(frame)
-            time.sleep(0.05)
+            time.sleep(0.033)
 
     def pause_recording(self):
         self.paused = not self.paused
